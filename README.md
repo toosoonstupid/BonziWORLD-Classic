@@ -1,6 +1,7 @@
 # BonziWORLD Classic
 
 This project has been created which is revival of BonziWORLD Classic. Thanks for all the laughs and memes along the way.
+This is also a revival of Foodz's BonziWORLD Classic. Note that the /owo command has been removed the voice has changed back to espeak.js.
 
 All the source code for the server and client is publically available here. If you want to run your own BonziWORLD, by all means go ahead. Do whatever you'd like with this code. Just try to put me somewhere in the credits.
 
