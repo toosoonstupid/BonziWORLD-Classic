@@ -59,7 +59,7 @@ function PushAudioNode(context, start_callback, end_callback, stop_callback) {
   this.samples_queue = [];
   this.context = context;
   this.scriptNode = context.createScriptProcessor(
-    isDesktop || true ? 0 : 8192, 1, 1
+    isDesktop || false ? 0 : 8192, 1, 1
   );
   this.connected = false;
   this.sinks = [];
