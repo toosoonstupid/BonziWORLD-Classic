@@ -7,11 +7,10 @@ const sanitize = require('sanitize-html');
 
 let roomsPublic = [];
 let rooms = {};
-// let users = [];
+let usersAll = [];
 
 exports.beat = function() {
     io.on('connection', function(socket) {
-        // users.push(new User(socket));
         new User(socket);
     });
 };
@@ -28,6 +27,7 @@ function checkRoomEmpty(room) {
         roomsPublic.splice(publicIndex, 1);
     
     room.deconstruct();
+    delete rooms[room.rid];
     delete room;
 }
 
@@ -39,9 +39,19 @@ class Room {
     }
 
     deconstruct() {
-        delete this.rid;
-        delete this.prefs;
-        delete this.users;
+        try {
+            this.users.forEach((user) => {
+                user.disconnect();
+            });
+        } catch (e) {
+            log.info.log('warn', 'roomDeconstruct', {
+                e: e,
+                thisCtx: this
+            });
+        }
+        //delete this.rid;
+        //delete this.prefs;
+        //delete this.users;
     }
 
     isFull() {
@@ -56,16 +66,24 @@ class Room {
     }
 
     leave(user) {
-       this.emit('leave', {
-            guid: user.guid
-       });
-
-       let userIndex = this.users.indexOf(user);
-
-       if (userIndex == -1) return;
-       this.users.splice(userIndex, 1);
-
-       checkRoomEmpty(this);
+        // HACK
+        try {
+            this.emit('leave', {
+                 guid: user.guid
+            });
+     
+            let userIndex = this.users.indexOf(user);
+     
+            if (userIndex == -1) return;
+            this.users.splice(userIndex, 1);
+     
+            checkRoomEmpty(this);
+        } catch(e) {
+            log.info.log('warn', 'roomLeave', {
+                e: e,
+                thisCtx: this
+            });
+        }
     }
 
     updateUser(user) {
@@ -138,7 +156,7 @@ let userCommands = {
     "pawn": "passthrough",
     "bees": "passthrough",
     "color": function(color) {
-        if (typeof color == "undefined") {
+        if (typeof color != "undefined") {
             if (settings.bonziColors.indexOf(color) == -1)
                 return;
             
@@ -167,7 +185,7 @@ let userCommands = {
         this.socket.emit("vaporwave");
         this.room.emit("youtube", {
             guid: this.guid,
-            vid: "cU8HrO7XuiE"
+            vid: "aQkPcPqTq4M"
         });
     },
     "unvaporwave": function() {
@@ -220,6 +238,11 @@ class User {
         this.guid = Utils.guidGen();
         this.socket = socket;
 
+        // Handle ban
+	    if (Ban.isBanned(this.getIp())) {
+            Ban.handleBan(this.socket);
+        }
+
         this.private = {
             login: false,
             sanitize: true,
@@ -237,7 +260,7 @@ class User {
             ip: this.getIp()
         });
 
-        socket.on('login', this.login.bind(this));
+       this.socket.on('login', this.login.bind(this));
     }
 
     getIp() {
@@ -249,6 +272,10 @@ class User {
     }
 
     login(data) {
+        if (typeof data != 'object') return; // Crash fix (issue #9)
+        
+        if (this.private.login) return;
+
 		log.info.log('info', 'login', {
 			guid: this.guid,
         });
@@ -287,11 +314,11 @@ class User {
 			}
 			// If room is full, fail login
 			else if (rooms[rid].isFull()) {
-				log.info.log('warn', 'loginFail', {
-					guid: guid,
+				log.info.log('debug', 'loginFail', {
+					guid: this.guid,
 					reason: "full"
 				});
-				return socket.emit("loginFail", {
+				return this.socket.emit("loginFail", {
 					reason: "full"
 				});
 			}
@@ -312,7 +339,7 @@ class User {
 		this.public.name = sanitize(data.name) || this.room.prefs.defaultName;
 
 		if (this.public.name.length > this.room.prefs.name_limit)
-			return socket.emit("loginFail", {
+			return this.socket.emit("loginFail", {
 				reason: "nameLength"
 			});
         
@@ -334,6 +361,7 @@ class User {
         this.room.join(this);
 
         this.private.login = true;
+        this.socket.removeAllListeners("login");
 
 		// Send all user info
 		this.socket.emit('updateAll', {
@@ -350,12 +378,15 @@ class User {
         this.socket.on('talk', this.talk.bind(this));
         this.socket.on('command', this.command.bind(this));
         this.socket.on('disconnect', this.disconnect.bind(this));
-
-        // Handle ban
-	    if (Ban.isBanned(this.getIp())) Ban.handleBan(socket);
     }
 
     talk(data) {
+        if (typeof data != 'object') { // Crash fix (issue #9)
+            data = {
+                text: "HEY EVERYONE LOOK AT ME I'M TRYING TO SCREW WITH THE SERVER LMAO"
+            };
+        }
+
         log.info.log('debug', 'talk', {
             guid: this.guid,
             text: data.text
@@ -374,16 +405,21 @@ class User {
     }
 
     command(data) {
-        var list = data.list;
-        var command = list[0].toLowerCase();
-        var args = list.slice(1);
+        if (typeof data != 'object') return; // Crash fix (issue #9)
 
-        log.info.log('debug', command, {
-            guid: this.guid,
-            args: args
-        });
-
+        var command;
+        var args;
+        
         try {
+            var list = data.list;
+            command = list[0].toLowerCase();
+            args = list.slice(1);
+    
+            log.info.log('debug', command, {
+                guid: this.guid,
+                args: args
+            });
+
             if (this.private.runlevel >= (this.room.prefs.runlevel[command] || 0)) {
                 let commandFunc = userCommands[command];
                 if (commandFunc == "passthrough")
@@ -392,7 +428,7 @@ class User {
                     });
                 else commandFunc.apply(this, args);
             } else
-                socket.emit('commandFail', {
+                this.socket.emit('commandFail', {
                     reason: "runlevel"
                 });
         } catch(e) {
@@ -410,7 +446,6 @@ class User {
     }
 
     disconnect() {
-
 		let ip = "N/A";
 		let port = "N/A";
 
@@ -419,7 +454,7 @@ class User {
 			port = this.getPort();
 		} catch(e) { 
 			log.info.log('warn', "exception", {
-				guid: guid,
+				guid: this.guid,
 				exception: e
 			});
 		}
@@ -429,37 +464,15 @@ class User {
 			ip: ip,
 			port: port
 		});
+         
+        this.socket.broadcast.emit('leave', {
+            guid: this.guid
+        });
         
+        this.socket.removeAllListeners('talk');
+        this.socket.removeAllListeners('command');
+        this.socket.removeAllListeners('disconnect');
+
         this.room.leave(this);
-        
-		try {
-			// Delete user
-			delete usersPrivate[guid];
-			socket.broadcast.emit('leave', {
-				guid: guid
-			});
-
-			// Remove user from public list
-			delete rooms[room].usersPublic[guid];
-			// If room is empty
-			if (Object.keys(rooms[room].usersPublic).length === 0) {
-				log.info.log('debug', 'removeRoom', {
-					room: room
-				});
-				// Delete room
-				delete rooms[room];
-
-				var publicIndex = roomsPublic.indexOf(room);
-				if (publicIndex != -1) {
-					roomsPublic.splice(publicIndex, 1);
-				}
-
-			}
-		} catch(e) { 
-			log.info.log('warn', "exception", {
-				guid: this.guid,
-				exception: e
-			});
-		}
     }
 }
