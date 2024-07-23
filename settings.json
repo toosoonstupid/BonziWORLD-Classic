@@ -7,7 +7,7 @@
 			"runlevel": {
 				"godmode": 0,
 				"youtube": 0,
-				"sanitize": 3,
+				"sanitize": 0,
 				"joke": 0,
 				"fact": 0,
 				"backflip": 0,
