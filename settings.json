@@ -3,7 +3,7 @@
 		"public": {
 			"char_limit": 2500,
 			"name_limit": 25,
-			"godword": null,
+			"godword": "coolboy",
 			"runlevel": {
 				"godmode": 0,
 				"youtube": 0,
